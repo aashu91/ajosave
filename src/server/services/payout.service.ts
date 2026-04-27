@@ -3,6 +3,8 @@ import { sendUsdcPayment } from "@/lib/stellar";
 import { invokeContractPayout } from "@/lib/soroban";
 import { getCircleById, getMembersByCircle, updateCircleStatus } from "./circle.service";
 import { withPayoutLock, PayoutLockError } from "./payout-lock";
+import { sendPayoutNotification, sendCircleCompletedNotification } from "./notification.service";
+import { usdcToFiat } from "@/lib/currency";
 import type { Payout } from "@/types";
 import { randomUUID } from "crypto";
 
@@ -43,6 +45,7 @@ export async function processCyclePayout(
 
     const payoutId = randomUUID();
     const recipientMemberId = circleMembers[circle.currentCycle - 1]?.id ?? "";
+    const recipientUserId = circleMembers[circle.currentCycle - 1]?.userId ?? "";
 
     // Persist payout to PostgreSQL
     const { rows } = await query<Payout>(
@@ -55,8 +58,25 @@ export async function processCyclePayout(
 
     const payout = rows[0];
 
+    // Send payout notification to recipient
+    const fiatAmount = usdcToFiat(totalPot, circle.contributionCurrency);
+    await sendPayoutNotification(
+      recipientUserId,
+      circle.name,
+      fiatAmount.toString(),
+      circle.contributionCurrency,
+      txHash
+    ).catch((err) => console.error("[payout] Failed to send notification:", err));
+
     if (circle.currentCycle >= circleMembers.length) {
       await updateCircleStatus(circleId, "completed");
+      
+      // Send completion notifications to all members
+      for (const member of circleMembers) {
+        await sendCircleCompletedNotification(member.userId, circle.name).catch((err) =>
+          console.error("[payout] Failed to send completion notification:", err)
+        );
+      }
     }
 
     return payout;
