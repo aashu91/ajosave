@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS members (
   status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'active', 'rejected', 'defaulted', 'completed')),
   has_received_payout BOOLEAN NOT NULL DEFAULT FALSE,
   joined_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  reviewed_at TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
   INDEX idx_members_circle_id (circle_id),
   INDEX idx_members_user_id (user_id),
@@ -48,11 +49,14 @@ CREATE TABLE IF NOT EXISTS contributions (
   cycle_number INTEGER NOT NULL CHECK (cycle_number > 0),
   amount_usdc NUMERIC(20, 7) NOT NULL,
   status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'confirmed', 'missed')),
+  paystack_reference VARCHAR(255) UNIQUE,
+  authorization_url TEXT,
   tx_hash VARCHAR(255),
   created_at TIMESTAMP NOT NULL DEFAULT NOW(),
   INDEX idx_contributions_circle_id (circle_id),
   INDEX idx_contributions_member_id (member_id),
-  INDEX idx_contributions_status (status)
+  INDEX idx_contributions_status (status),
+  UNIQUE KEY unique_contribution_per_cycle (member_id, cycle_number)
 );
 
 -- ─── Payouts ────────────────────────────────────────────────────────────────────

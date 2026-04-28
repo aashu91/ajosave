@@ -50,9 +50,15 @@ export const authOptions: NextAuthOptions = {
         const user = result.rows[0];
 
         if (!user) {
-          // If user doesn't exist, we might want to auto-register or return null.
-          // For now, return a placeholder to match previous behavior but with verification.
-          return { id: "new-" + phone, phone, name: "Ajosave User", role: "user" };
+          // Upsert: create user record on first successful OTP verification
+          const { rows } = await query<{ id: string; phone: string; name: string; role: string }>(
+            `INSERT INTO users (id, phone, display_name, role, reputation_score, created_at)
+             VALUES (gen_random_uuid(), $1, 'Ajosave User', 'user', 0, NOW())
+             ON CONFLICT (phone) DO UPDATE SET phone = EXCLUDED.phone
+             RETURNING id, phone, display_name as name, role`,
+            [phone]
+          );
+          return rows[0];
         }
 
         return user;

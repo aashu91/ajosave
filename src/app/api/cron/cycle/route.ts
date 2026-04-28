@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { processDueCycles } from "@/server/services/scheduler.service";
+import { serverConfig } from "@/server/config";
 import type { ApiResponse } from "@/types";
 
 export const GET = async (req: NextRequest) => {
-  if (req.headers.get("authorization") !== `Bearer ${process.env.CRON_SECRET}`) {
+  const token = req.headers.get("authorization")?.replace("Bearer ", "");
+  if (!token || token !== serverConfig.cronSecret) {
     return NextResponse.json<ApiResponse<never>>(
       { success: false, error: "Unauthorized" },
       { status: 401 }

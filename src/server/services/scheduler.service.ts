@@ -1,5 +1,6 @@
 import { query } from "@/lib/db";
 import { notifyPayoutReminder, notifyMissedContribution } from "./notification.service";
+import { getMissedContributions } from "./contribution.service";
 import type { Circle, Member } from "@/types";
 
 /**
@@ -64,45 +65,25 @@ export async function processMissedContributions(): Promise<void> {
 
   for (const circle of circles) {
     try {
-      // Get all active members
-      const { rows: members } = await query<Member>(
-        "SELECT * FROM members WHERE circle_id = $1 AND status = 'active'",
-        [circle.id]
-      );
+      const missed = await getMissedContributions(circle.id, circle.currentCycle);
 
-      // Check which members haven't contributed for the current cycle
-      for (const member of members) {
-        const { rows: contributions } = await query(
-          `SELECT * FROM contributions 
-           WHERE circle_id = $1 
-           AND member_id = $2 
-           AND cycle_number = $3 
-           AND status = 'confirmed'`,
-          [circle.id, member.id, circle.currentCycle]
+      for (const { memberId, userId } of missed) {
+        // Mark member as defaulted
+        await query(
+          "UPDATE members SET status = 'defaulted' WHERE id = $1",
+          [memberId]
         );
 
-        // If no confirmed contribution, mark as missed
-        if (contributions.length === 0) {
-          // Mark member as defaulted
-          await query(
-            "UPDATE members SET status = 'defaulted' WHERE id = $1",
-            [member.id]
-          );
+        // Create missed contribution record
+        await query(
+          `INSERT INTO contributions (id, circle_id, member_id, cycle_number, amount_usdc, status, created_at)
+           VALUES (gen_random_uuid(), $1, $2, $3, $4, 'missed', NOW())
+           ON CONFLICT (member_id, cycle_number) DO NOTHING`,
+          [circle.id, memberId, circle.currentCycle, circle.contributionUsdc]
+        );
 
-          // Create missed contribution record
-          await query(
-            `INSERT INTO contributions (id, circle_id, member_id, cycle_number, amount_usdc, status, created_at)
-             VALUES (gen_random_uuid(), $1, $2, $3, $4, 'missed', NOW())`,
-            [circle.id, member.id, circle.currentCycle, circle.contributionUsdc]
-          );
-
-          // Send notification
-          await notifyMissedContribution(
-            member.userId,
-            circle.name,
-            circle.contributionUsdc
-          );
-        }
+        // Send notification
+        await notifyMissedContribution(userId, circle.name, circle.contributionUsdc);
       }
     } catch (error) {
       console.error(`Failed to process missed contributions for circle ${circle.id}:`, error);

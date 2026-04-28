@@ -29,4 +29,5 @@ export const serverConfig = {
   },
   redis: { url: process.env.REDIS_URL ?? "redis://localhost:6379" },
   database: { url: process.env.DATABASE_URL ?? "" },
+  cronSecret: process.env.CRON_SECRET ?? "",
 } as const;

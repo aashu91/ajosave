@@ -61,6 +61,12 @@ export async function processCyclePayout(
       parseFloat(circle.contributionUsdc) * circleMembers.length
     ).toFixed(7);
 
+    // Guard: reject if the current cycle's recipient already received a payout
+    const recipientMemberForGuard = circleMembers[circle.currentCycle - 1];
+    if (recipientMemberForGuard?.hasReceivedPayout) {
+      throw new Error(`Member has already received payout for cycle ${circle.currentCycle}`);
+    }
+
     let txHash: string;
     if (circle.contractId) {
       // Soroban path: contract handles transfer, backend only triggers payout()
@@ -85,6 +91,14 @@ export async function processCyclePayout(
     );
 
     const payout = rows[0];
+
+    // Mark recipient as having received their payout (idempotency guard)
+    if (recipientMemberId) {
+      await query(
+        "UPDATE members SET has_received_payout = TRUE WHERE id = $1",
+        [recipientMemberId]
+      );
+    }
 
     // Send SMS notifications to all members
     if (recipientMember) {
