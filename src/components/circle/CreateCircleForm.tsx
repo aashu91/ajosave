@@ -8,6 +8,14 @@ import { Button } from "@/components/ui/Button";
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import styles from "./CreateCircleForm.module.css";
+import { TemplateSelector } from "./TemplateSelector";
+import { CIRCLE_TEMPLATES, type CircleTemplate } from "@/data/circleTemplates";
+
+const FORM_DEFAULTS: Partial<CreateCircleInput> = {
+  cycleFrequency: "monthly",
+  circleType: "public",
+  contributionCurrency: "NGN",
+};
 
 function useUsdcPreview(amount: number | undefined, currency: string) {
   const [usdc, setUsdc] = useState<number | null>(null);
@@ -44,15 +52,22 @@ export function CreateCircleForm() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [activeTemplateId, setActiveTemplateId] = useState<string | null>(null);
 
-  const { register, handleSubmit, control, formState: { errors } } = useForm<CreateCircleInput>({
+  const { register, handleSubmit, control, reset, formState: { errors } } = useForm<CreateCircleInput>({
     resolver: zodResolver(createCircleSchema),
-    defaultValues: { 
-      cycleFrequency: "monthly",
-      circleType: "public",
-      contributionCurrency: "NGN"
-    },
+    defaultValues: FORM_DEFAULTS,
   });
+
+  const handleTemplateSelect = (template: CircleTemplate | null) => {
+    if (template !== null) {
+      reset(template.values);
+      setActiveTemplateId(template.id);
+    } else {
+      reset(FORM_DEFAULTS);
+      setActiveTemplateId(null);
+    }
+  };
 
   const contributionAmount = useWatch({ control, name: "contributionAmount" });
   const contributionCurrency = useWatch({ control, name: "contributionCurrency" });
@@ -80,6 +95,12 @@ export function CreateCircleForm() {
   return (
     <form className={styles.form} onSubmit={handleSubmit(onSubmit)} noValidate>
       <h2 className={styles.title}>Create a Circle</h2>
+
+      <TemplateSelector
+        templates={CIRCLE_TEMPLATES}
+        activeTemplateId={activeTemplateId}
+        onSelect={handleTemplateSelect}
+      />
 
       <Input label="Circle Name" placeholder="e.g. Lagos Girls Monthly Ajo"
         error={errors.name?.message} {...register("name")} />
