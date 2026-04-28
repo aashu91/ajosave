@@ -1,19 +1,21 @@
-import { NextResponse } from "next/server";
-import { getNgnPerUsdc } from "@/lib/fx";
+import { NextResponse, NextRequest } from "next/server";
+import { getFiatPerUsdc } from "@/lib/fx";
 import type { ApiResponse } from "@/types";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const currency = req.nextUrl.searchParams.get("currency") || "NGN";
+  
   try {
-    const rate = await getNgnPerUsdc();
-    return NextResponse.json<ApiResponse<{ ngnPerUsdc: number; fetchedAt: string }>>({
+    const rate = await getFiatPerUsdc(currency);
+    return NextResponse.json<ApiResponse<{ rate: number; currency: string; fetchedAt: string }>>({
       success: true,
-      data: { ngnPerUsdc: rate, fetchedAt: new Date().toISOString() },
+      data: { rate, currency, fetchedAt: new Date().toISOString() },
     });
-  } catch {
+  } catch (err) {
     return NextResponse.json<ApiResponse<never>>(
-      { success: false, error: "Failed to fetch FX rate" },
+      { success: false, error: `Failed to fetch FX rate for ${currency}` },
       { status: 500 }
     );
   }

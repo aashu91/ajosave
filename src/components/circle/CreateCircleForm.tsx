@@ -9,32 +9,33 @@ import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import styles from "./CreateCircleForm.module.css";
 
-function useUsdcPreview(ngnAmount: number | undefined) {
+function useUsdcPreview(amount: number | undefined, currency: string) {
   const [usdc, setUsdc] = useState<number | null>(null);
   const [fetchedAt, setFetchedAt] = useState<string | null>(null);
-  const rateRef = useRef<number | null>(null);
+  const [rates, setRates] = useState<Record<string, number>>({});
 
   useEffect(() => {
-    if (!rateRef.current) {
-      fetch("/api/fx/rate")
+    if (!rates[currency]) {
+      fetch(`/api/fx/rate?currency=${currency}`)
         .then((r) => r.json())
         .then((json) => {
           if (json.success) {
-            rateRef.current = json.data.ngnPerUsdc;
+            setRates((prev) => ({ ...prev, [currency]: json.data.rate }));
             setFetchedAt(json.data.fetchedAt);
           }
         })
         .catch(() => {});
     }
-  }, []);
+  }, [currency, rates]);
 
   useEffect(() => {
-    if (rateRef.current && ngnAmount && ngnAmount > 0) {
-      setUsdc(ngnAmount / rateRef.current);
+    const rate = rates[currency];
+    if (rate && amount && amount > 0) {
+      setUsdc(amount / rate);
     } else {
       setUsdc(null);
     }
-  }, [ngnAmount]);
+  }, [amount, currency, rates]);
 
   return { usdc, fetchedAt };
 }
@@ -48,12 +49,14 @@ export function CreateCircleForm() {
     resolver: zodResolver(createCircleSchema),
     defaultValues: { 
       cycleFrequency: "monthly",
-      circleType: "public"
+      circleType: "public",
+      contributionCurrency: "NGN"
     },
   });
 
-  const ngnAmount = useWatch({ control, name: "contributionNgn" });
-  const { usdc, fetchedAt } = useUsdcPreview(ngnAmount);
+  const contributionAmount = useWatch({ control, name: "contributionAmount" });
+  const contributionCurrency = useWatch({ control, name: "contributionCurrency" });
+  const { usdc, fetchedAt } = useUsdcPreview(contributionAmount, contributionCurrency);
 
   const onSubmit = async (data: CreateCircleInput) => {
     setLoading(true);
@@ -81,9 +84,24 @@ export function CreateCircleForm() {
       <Input label="Circle Name" placeholder="e.g. Lagos Girls Monthly Ajo"
         error={errors.name?.message} {...register("name")} />
 
-      <Input label="Contribution Amount (₦)" type="number" placeholder="10000"
-        error={errors.contributionNgn?.message}
-        {...register("contributionNgn", { valueAsNumber: true })} />
+      <div className={styles.row}>
+        <div className={styles.flex2}>
+          <Input label="Contribution Amount" type="number" placeholder="10000"
+            error={errors.contributionAmount?.message}
+            {...register("contributionAmount", { valueAsNumber: true })} />
+        </div>
+        <div className={styles.flex1}>
+          <div className="input-group">
+            <label className="input-label" htmlFor="contributionCurrency">Currency</label>
+            <select id="contributionCurrency" className="input" {...register("contributionCurrency")}>
+              <option value="NGN">NGN (₦)</option>
+              <option value="GBP">GBP (£)</option>
+              <option value="USD">USD ($)</option>
+              <option value="EUR">EUR (€)</option>
+            </select>
+          </div>
+        </div>
+      </div>
 
       {usdc !== null && (
         <p className={styles.usdcPreview}>

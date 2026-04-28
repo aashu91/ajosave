@@ -78,7 +78,7 @@ components:
     # ── Domain objects ──────────────────────────────────────────────────────────
     Circle:
       type: object
-      required: [id, name, creatorId, contributionUsdc, contributionNgn, maxMembers, cycleFrequency, status, currentCycle, createdAt, updatedAt]
+      required: [id, name, creatorId, contributionUsdc, contributionFiat, contributionCurrency, circleType, maxMembers, cycleFrequency, status, currentCycle, createdAt, updatedAt]
       properties:
         id:
           type: string
@@ -93,10 +93,18 @@ components:
           type: string
           description: Per-member per-cycle amount in USDC (7 decimal places)
           example: "10.0000000"
-        contributionNgn:
+        contributionFiat:
           type: integer
-          description: Equivalent NGN amount collected via Paystack
+          description: Equivalent fiat amount collected via Paystack/Stripe
           example: 16000
+        contributionCurrency:
+          type: string
+          enum: [NGN, GBP, USD, EUR]
+          example: NGN
+        circleType:
+          type: string
+          enum: [public, private]
+          example: public
         maxMembers:
           type: integer
           minimum: 2
@@ -327,19 +335,24 @@ paths:
           application/json:
             schema:
               type: object
-              required: [name, contributionNgn, maxMembers, cycleFrequency]
+              required: [name, contributionFiat, contributionCurrency, maxMembers, cycleFrequency]
               properties:
                 name:
                   type: string
                   minLength: 3
                   maxLength: 60
                   example: "Lagos Diaspora Circle"
-                contributionNgn:
+                contributionFiat:
                   type: integer
                   minimum: 1000
                   maximum: 5000000
-                  description: Per-member per-cycle amount in NGN
+                  description: Per-member per-cycle amount in fiat
                   example: 16000
+                contributionCurrency:
+                  type: string
+                  enum: [NGN, GBP, USD, EUR]
+                  description: Currency for the fiat amount
+                  example: NGN
                 maxMembers:
                   type: integer
                   minimum: 2

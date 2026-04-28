@@ -5,6 +5,8 @@ import { getCircleById, getMembersByCircle } from "@/server/services/circle.serv
 import { CircleStatusBadge } from "@/components/ui/CircleStatusBadge";
 import { MemberPayoutList } from "@/components/circle/MemberPayoutList";
 import { CircleActions } from "@/components/circle/CircleActions";
+import { PayoutCountdown } from "@/components/circle/PayoutCountdown";
+import { getCurrencySymbol, SupportedCurrency } from "@/lib/currency";
 import { format } from "date-fns";
 import type { Metadata } from "next";
 import styles from "./page.module.css";
@@ -17,8 +19,9 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const circle = await getCircleById(params.id);
   if (!circle) return { title: "Circle Not Found" };
 
+  const symbol = getCurrencySymbol(circle.contributionCurrency as SupportedCurrency);
   const title = `${circle.name} | Ajosave`;
-  const description = `Join ${circle.name} — a savings circle with ₦${circle.contributionNgn.toLocaleString("en-NG")} contributions every ${circle.cycleFrequency}. Powered by Stellar.`;
+  const description = `Join ${circle.name} — a savings circle with ${symbol}${circle.contributionFiat.toLocaleString()} contributions every ${circle.cycleFrequency}. Powered by Stellar.`;
 
   return {
     title,
@@ -52,6 +55,7 @@ export default async function CircleDetailPage({ params }: Props) {
   const userId = (session?.user as { id?: string } | undefined)?.id;
   const isCreator = userId === circle.creatorId;
   const isMember = members.some((m) => m.userId === userId);
+  const currencySymbol = getCurrencySymbol(circle.contributionCurrency as SupportedCurrency);
 
   return (
     <div className={styles.page}>
@@ -77,7 +81,10 @@ export default async function CircleDetailPage({ params }: Props) {
             <dl className={styles.details}>
               <div className={styles.detailRow}>
                 <dt>Contribution</dt>
-                <dd>₦{circle.contributionNgn.toLocaleString("en-NG")} / {circle.cycleFrequency}</dd>
+                <dd>
+                  {currencySymbol}
+                  {circle.contributionFiat.toLocaleString()} / {circle.cycleFrequency}
+                </dd>
               </div>
               <div className={styles.detailRow}>
                 <dt>Members</dt>
@@ -94,6 +101,10 @@ export default async function CircleDetailPage({ params }: Props) {
                 </div>
               )}
             </dl>
+
+            {circle.nextPayoutAt && circle.status === "active" && (
+              <PayoutCountdown nextPayoutAt={circle.nextPayoutAt} />
+            )}
           </div>
 
           <MemberPayoutList

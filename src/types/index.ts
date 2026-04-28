@@ -1,3 +1,5 @@
+import { SupportedCurrency } from "@/lib/currency";
+
 // ─── User ─────────────────────────────────────────────────────────────────────
 export type UserRole = "user" | "admin";
 
@@ -14,6 +16,7 @@ export interface User {
 
 // ─── Circle ───────────────────────────────────────────────────────────────────
 export type CircleStatus = "open" | "active" | "completed" | "cancelled";
+export type CircleType = "public" | "private";
 export type CycleFrequency = "weekly" | "biweekly" | "monthly";
 export type PayoutMethod = "fixed" | "randomized";
 
@@ -24,6 +27,7 @@ export interface Circle {
   contributionUsdc: string;   // per-member per-cycle amount
   contributionFiat: number;   // renamed from contributionNgn
   contributionCurrency: SupportedCurrency;
+  circleType: CircleType;
   maxMembers: number;
   cycleFrequency: CycleFrequency;
   payoutMethod: PayoutMethod;
@@ -31,6 +35,7 @@ export interface Circle {
   status: CircleStatus;
   contractId?: string;        // deployed Soroban circle contract
   currentCycle: number;       // 1-indexed
+  memberCount?: number;       // calculated field
   nextPayoutAt?: Date;
   createdAt: Date;
   updatedAt: Date;

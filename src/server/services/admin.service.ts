@@ -18,7 +18,9 @@ export async function adminListCircles(): Promise<AdminCircleRow[]> {
     `SELECT
        c.id, c.name, c.creator_id as "creatorId",
        c.contribution_usdc as "contributionUsdc",
-       c.contribution_ngn as "contributionNgn",
+       c.contribution_fiat as "contributionFiat",
+       c.contribution_currency as "contributionCurrency",
+       c.circle_type as "circleType",
        c.max_members as "maxMembers",
        c.cycle_frequency as "cycleFrequency",
        c.status, c.contract_id as "contractId",

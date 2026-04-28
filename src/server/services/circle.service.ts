@@ -2,20 +2,44 @@ import { query, transaction } from "@/lib/db";
 import { randomUUID } from "crypto";
 import type { Circle, Member, CircleStatus } from "@/types";
 import type { CreateCircleInput } from "@/types/schemas";
-import { getNgnPerUsdc } from "@/lib/fx";
+import { getFiatPerUsdc } from "@/lib/fx";
 import { deployAjoContract } from "@/lib/soroban";
 
-export const ngnToUsdc = async (ngn: number): Promise<string> => {
-  const rate = await getNgnPerUsdc();
-  return (ngn / rate).toFixed(7);
+export const fiatToUsdc = async (amount: number, currency: string): Promise<string> => {
+  const rate = await getFiatPerUsdc(currency);
+  return (amount / rate).toFixed(7);
 };
+
+const CIRCLE_SELECT = `
+  id, name, creator_id as "creatorId", 
+  contribution_usdc as "contributionUsdc", 
+  contribution_fiat as "contributionFiat", 
+  contribution_currency as "contributionCurrency",
+  circle_type as "circleType",
+  max_members as "maxMembers", 
+  cycle_frequency as "cycleFrequency", 
+  payout_method as "payoutMethod", 
+  randomization_seed as "randomizationSeed",
+  status, contract_id as "contractId", 
+  current_cycle as "currentCycle", 
+  (SELECT COUNT(*)::int FROM members WHERE circle_id = circles.id AND status = 'active') as "memberCount",
+  next_payout_at as "nextPayoutAt", 
+  created_at as "createdAt", 
+  updated_at as "updatedAt"
+`;
+
+const MEMBER_SELECT = `
+  id, circle_id as "circleId", user_id as "userId", 
+  position, status, has_received_payout as "hasReceivedPayout", 
+  joined_at as "joinedAt", reviewed_at as "reviewedAt"
+`;
 
 export async function createCircle(
   creatorId: string,
   input: CreateCircleInput
 ): Promise<Circle> {
   const id = randomUUID();
-  const contributionUsdc = await ngnToUsdc(input.contributionNgn);
+  const contributionUsdc = await fiatToUsdc(input.contributionAmount, input.contributionCurrency);
 
   // Deploy a dedicated Soroban contract instance for this circle
   let contractId: string | null = null;
@@ -27,11 +51,11 @@ export async function createCircle(
 
   const { rows } = await query<Circle>(
     `INSERT INTO circles
-       (id, name, creator_id, contribution_usdc, contribution_ngn,
+       (id, name, creator_id, contribution_usdc, contribution_fiat, contribution_currency,
         max_members, cycle_frequency, payout_method, contract_id, status, current_cycle, created_at, updated_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'open',0,NOW(),NOW())
-     RETURNING *`,
-    [id, input.name, creatorId, contributionUsdc, input.contributionNgn,
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'open',0,NOW(),NOW())
+     RETURNING ${CIRCLE_SELECT}`,
+    [id, input.name, creatorId, contributionUsdc, input.contributionAmount, input.contributionCurrency,
      input.maxMembers, input.cycleFrequency, input.payoutMethod, contractId]
   );
   return rows[0];
@@ -39,7 +63,7 @@ export async function createCircle(
 
 export async function getCircleById(id: string): Promise<Circle | null> {
   const { rows } = await query<Circle>(
-    "SELECT * FROM circles WHERE id = $1",
+    `SELECT ${CIRCLE_SELECT} FROM circles WHERE id = $1`,
     [id]
   );
   return rows[0] ?? null;
@@ -52,19 +76,69 @@ export interface PaginatedCircles {
   limit: number;
 }
 
-export async function listOpenCircles(page = 1, limit = 20): Promise<PaginatedCircles> {
+export interface CircleFilters {
+  frequency?: CycleFrequency;
+  minAmount?: number;
+  maxAmount?: number;
+  currency?: string;
+  search?: string;
+}
+
+export async function listOpenCircles(
+  page = 1,
+  limit = 20,
+  filters: CircleFilters = {}
+): Promise<PaginatedCircles> {
   const safePage = Math.max(1, page);
   const safeLimit = Math.min(100, Math.max(1, limit));
   const offset = (safePage - 1) * safeLimit;
 
+  let queryText = `SELECT ${CIRCLE_SELECT} FROM circles WHERE status = 'open'`;
+  let countQueryText = "SELECT COUNT(*) FROM circles WHERE status = 'open'";
+  const queryParams: any[] = [];
+  let paramIndex = 1;
+
+  if (filters.frequency) {
+    queryText += ` AND cycle_frequency = $${paramIndex}`;
+    countQueryText += ` AND cycle_frequency = $${paramIndex}`;
+    queryParams.push(filters.frequency);
+    paramIndex++;
+  }
+
+  if (filters.currency) {
+    queryText += ` AND contribution_currency = $${paramIndex}`;
+    countQueryText += ` AND contribution_currency = $${paramIndex}`;
+    queryParams.push(filters.currency);
+    paramIndex++;
+  }
+
+  if (filters.minAmount !== undefined) {
+    queryText += ` AND contribution_fiat >= $${paramIndex}`;
+    countQueryText += ` AND contribution_fiat >= $${paramIndex}`;
+    queryParams.push(filters.minAmount);
+    paramIndex++;
+  }
+
+  if (filters.maxAmount !== undefined) {
+    queryText += ` AND contribution_fiat <= $${paramIndex}`;
+    countQueryText += ` AND contribution_fiat <= $${paramIndex}`;
+    queryParams.push(filters.maxAmount);
+    paramIndex++;
+  }
+
+  if (filters.search) {
+    queryText += ` AND name ILIKE $${paramIndex}`;
+    countQueryText += ` AND name ILIKE $${paramIndex}`;
+    queryParams.push(`%${filters.search}%`);
+    paramIndex++;
+  }
+
+  queryText += ` ORDER BY created_at DESC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
+  const finalParams = [...queryParams, safeLimit, offset];
+
   const [{ rows }, { rows: countRows }] = await Promise.all([
-    query<Circle>(
-      "SELECT * FROM circles WHERE status = 'open' ORDER BY created_at DESC LIMIT $1 OFFSET $2",
-      [safeLimit, offset]
-    ),
-    query<{ count: string }>(
-      "SELECT COUNT(*) FROM circles WHERE status = 'open'"
-    ),
+    query<Circle>(queryText, finalParams),
+    query<{ count: string }>(countQueryText, queryParams),
   ]);
 
   return { data: rows, total: parseInt(countRows[0].count, 10), page: safePage, limit: safeLimit };
@@ -72,7 +146,21 @@ export async function listOpenCircles(page = 1, limit = 20): Promise<PaginatedCi
 
 export async function getCirclesByUser(userId: string): Promise<Circle[]> {
   const { rows } = await query<Circle>(
-    `SELECT DISTINCT c.* FROM circles c
+    `SELECT DISTINCT c.id, c.name, c.creator_id as "creatorId", 
+        c.contribution_usdc as "contributionUsdc", 
+        c.contribution_fiat as "contributionFiat", 
+        c.contribution_currency as "contributionCurrency",
+        c.circle_type as "circleType",
+        c.max_members as "maxMembers", 
+        c.cycle_frequency as "cycleFrequency", 
+        c.payout_method as "payoutMethod", 
+        c.randomization_seed as "randomizationSeed",
+        c.status, c.contract_id as "contractId", 
+        c.current_cycle as "currentCycle", 
+        c.next_payout_at as "nextPayoutAt", 
+        c.created_at as "createdAt", 
+        c.updated_at as "updatedAt"
+     FROM circles c
      LEFT JOIN members m ON m.circle_id = c.id
      WHERE c.creator_id = $1 OR m.user_id = $1
      ORDER BY c.created_at DESC`,
@@ -83,11 +171,12 @@ export async function getCirclesByUser(userId: string): Promise<Circle[]> {
 
 export async function joinCircle(
   circleId: string,
-  userId: string
+  userId: string,
+  isInvited: boolean = false
 ): Promise<Member> {
   return transaction(async (q) => {
     const { rows: circleRows } = await q<Circle>(
-      "SELECT * FROM circles WHERE id = $1 FOR UPDATE",
+      `SELECT ${CIRCLE_SELECT} FROM circles WHERE id = $1 FOR UPDATE`,
       [circleId]
     );
     const circle = circleRows[0];
@@ -95,22 +184,23 @@ export async function joinCircle(
     if (circle.status !== "open") throw new Error("Circle is not open for joining");
 
     const { rows: memberRows } = await q<Member>(
-      "SELECT * FROM members WHERE circle_id = $1 AND status IN ('active', 'pending')",
+      `SELECT ${MEMBER_SELECT} FROM members WHERE circle_id = $1 AND status IN ('active', 'pending')`,
       [circleId]
     );
     if (memberRows.length >= circle.maxMembers) throw new Error("Circle is full");
     if (memberRows.some((m) => m.userId === userId)) throw new Error("Already a member");
 
-    // For private circles, create pending membership without position
+    // For private circles, create pending membership without position UNLESS invited
     // For public circles, auto-approve and assign position
     const isPrivate = circle.circleType === "private";
-    const status = isPrivate ? "pending" : "active";
-    const position = isPrivate ? null : memberRows.filter(m => m.status === 'active').length + 1;
+    const status = (isPrivate && !isInvited) ? "pending" : "active";
+    const position = status === "active" ? memberRows.filter(m => m.status === 'active').length + 1 : null;
+    const reviewedAt = (status === "active" && isPrivate) ? new Date() : null;
 
     const { rows: newMember } = await q<Member>(
-      `INSERT INTO members (id, circle_id, user_id, position, status, has_received_payout, joined_at)
-       VALUES ($1,$2,$3,$4,$5,false,NOW()) RETURNING *`,
-      [randomUUID(), circleId, userId, position, status]
+      `INSERT INTO members (id, circle_id, user_id, position, status, has_received_payout, joined_at, reviewed_at)
+       VALUES ($1,$2,$3,$4,$5,false,NOW(), $6) RETURNING ${MEMBER_SELECT}`,
+      [randomUUID(), circleId, userId, position, status, reviewedAt]
     );
 
     // Auto-start when full (only count active members)
@@ -131,7 +221,7 @@ export async function joinCircle(
 
 export async function getMembersByCircle(circleId: string): Promise<Member[]> {
   const { rows } = await query<Member>(
-    "SELECT * FROM members WHERE circle_id = $1 ORDER BY position",
+    `SELECT ${MEMBER_SELECT} FROM members WHERE circle_id = $1 ORDER BY position`,
     [circleId]
   );
   return rows;
@@ -150,7 +240,7 @@ export async function shuffleAndPersistPositions(
 ): Promise<Member[]> {
   return transaction(async (q) => {
     const { rows: circleRows } = await q<Circle>(
-      "SELECT * FROM circles WHERE id = $1 FOR UPDATE",
+      `SELECT ${CIRCLE_SELECT} FROM circles WHERE id = $1 FOR UPDATE`,
       [circleId]
     );
     const circle = circleRows[0];
@@ -158,7 +248,7 @@ export async function shuffleAndPersistPositions(
     if (circle.status !== "open") throw new Error("Positions can only be shuffled before the circle starts");
 
     const { rows: memberRows } = await q<Member>(
-      "SELECT * FROM members WHERE circle_id = $1 ORDER BY position",
+      `SELECT ${MEMBER_SELECT} FROM members WHERE circle_id = $1 ORDER BY position`,
       [circleId]
     );
 
@@ -346,5 +436,45 @@ export async function cancelCircle(
       [circleId]
     );
     return updated[0];
+  });
+}
+
+/**
+ * Leave an open circle.
+ * Only members who are not the creator can leave.
+ */
+export async function leaveCircle(
+  circleId: string,
+  userId: string
+): Promise<void> {
+  return transaction(async (q) => {
+    const { rows: circleRows } = await q<Circle>(
+      "SELECT * FROM circles WHERE id = $1 FOR UPDATE",
+      [circleId]
+    );
+    const circle = circleRows[0];
+    if (!circle) throw new Error("Circle not found");
+    if (circle.status !== "open") throw new Error("Can only leave open circles");
+    if (circle.creatorId === userId) throw new Error("Creator cannot leave the circle; cancel it instead");
+
+    // Remove the member
+    const { rowCount } = await q(
+      "DELETE FROM members WHERE circle_id = $1 AND user_id = $2",
+      [circleId, userId]
+    );
+    if (rowCount === 0) throw new Error("Not a member of this circle");
+
+    // Re-assign positions for remaining active members to keep them contiguous
+    const { rows: remainingMembers } = await q<Member>(
+      "SELECT id FROM members WHERE circle_id = $1 AND status = 'active' ORDER BY position ASC",
+      [circleId]
+    );
+
+    for (let i = 0; i < remainingMembers.length; i++) {
+      await q(
+        "UPDATE members SET position = $1 WHERE id = $2",
+        [i + 1, remainingMembers[i].id]
+      );
+    }
   });
 }

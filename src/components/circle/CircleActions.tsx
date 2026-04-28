@@ -17,6 +17,25 @@ export function CircleActions({ circleId, isCreator, isMember, status }: Props) 
   const [modal, setModal] = useState<"cancel" | "leave" | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [inviteCopied, setInviteCopied] = useState(false);
+
+  const handleCopyInvite = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/circles/${circleId}/invite`);
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error);
+
+      await navigator.clipboard.writeText(json.data.inviteUrl);
+      setInviteCopied(true);
+      setTimeout(() => setInviteCopied(false), 3000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to generate invite link");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleCancel = async () => {
     setLoading(true);
@@ -57,7 +76,17 @@ export function CircleActions({ circleId, isCreator, isMember, status }: Props) 
 
   return (
     <>
-      <div style={{ display: "flex", gap: "var(--space-3)" }}>
+      <div style={{ display: "flex", gap: "var(--space-3)", alignItems: "center" }}>
+        {isCreator && status === "open" && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleCopyInvite}
+            disabled={loading}
+          >
+            {inviteCopied ? "Link Copied!" : "Copy Invite Link"}
+          </Button>
+        )}
         {canLeave && (
           <Button variant="ghost" size="sm" onClick={() => setModal("leave")}>
             Leave Circle

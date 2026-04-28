@@ -26,7 +26,20 @@ export const GET = withErrorHandler(async (req: NextRequest) => {
 
   const page = parseInt(searchParams.get("page") ?? "1", 10);
   const limit = parseInt(searchParams.get("limit") ?? "20", 10);
-  const result = await listOpenCircles(page, limit);
+  
+  const frequency = searchParams.get("frequency") as any;
+  const minAmount = searchParams.get("minAmount") ? parseInt(searchParams.get("minAmount")!, 10) : undefined;
+  const maxAmount = searchParams.get("maxAmount") ? parseInt(searchParams.get("maxAmount")!, 10) : undefined;
+  const currency = searchParams.get("currency") ?? undefined;
+  const search = searchParams.get("search") ?? undefined;
+
+  const result = await listOpenCircles(page, limit, {
+    frequency,
+    minAmount,
+    maxAmount,
+    currency,
+    search,
+  });
   return NextResponse.json<ApiResponse<PaginatedCircles>>({ success: true, data: result });
 });
 

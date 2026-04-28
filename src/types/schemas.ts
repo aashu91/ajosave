@@ -17,6 +17,7 @@ export const createCircleSchema = z.object({
 export const joinCircleSchema = z.object({
   circleId: z.string().uuid(),
   stellarPublicKey: z.string().length(56, "Invalid Stellar public key"),
+  token: z.string().optional(),
 });
 
 export const verifyOtpSchema = z.object({
