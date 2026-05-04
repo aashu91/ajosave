@@ -40,6 +40,7 @@ export function CircleCard({ circle, members, showJoin = false }: CircleCardProp
           className={styles.progressBar}
           style={{ width: `${(members.length / circle.maxMembers) * 100}%` }}
           role="progressbar"
+          aria-label={`${members.length} of ${circle.maxMembers} members joined`}
           aria-valuenow={members.length}
           aria-valuemin={0}
           aria-valuemax={circle.maxMembers}
