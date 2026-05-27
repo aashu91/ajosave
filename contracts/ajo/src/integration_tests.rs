@@ -407,4 +407,224 @@ mod integration {
             );
         }
     }
+
+    // ─── set_payout_order / get_payout_order ─────────────────────────────────
+
+    /// set_payout_order: custom order is stored and returned by get_payout_order
+    #[test]
+    fn test_set_and_get_payout_order() {
+        let f = setup_fixture(3);
+        let order = vec![&f.env, 2u32, 0u32, 1u32];
+        f.client.set_payout_order(&order);
+        let stored = f.client.get_payout_order();
+        assert_eq!(stored, order);
+    }
+
+    /// set_payout_order: rejects wrong length
+    #[test]
+    #[should_panic(expected = "payout order length must equal max_members")]
+    fn test_set_payout_order_wrong_length() {
+        let f = setup_fixture(3);
+        let bad_order = vec![&f.env, 0u32, 1u32]; // length 2, need 3
+        f.client.set_payout_order(&bad_order);
+    }
+
+    /// set_payout_order: rejects after circle starts
+    #[test]
+    #[should_panic(expected = "cannot set payout order after circle starts")]
+    fn test_set_payout_order_after_start() {
+        let f = setup_fixture(2);
+        for m in f.members.iter() {
+            f.client.join(m);
+        }
+        // Circle is now started (cycle 1)
+        let order = vec![&f.env, 0u32, 1u32];
+        f.client.set_payout_order(&order);
+    }
+
+    /// payout respects custom payout order
+    #[test]
+    fn test_payout_respects_custom_order() {
+        let f = setup_fixture(2);
+        // Reverse order: member[1] gets paid first
+        let order = vec![&f.env, 1u32, 0u32];
+        f.client.set_payout_order(&order);
+
+        for m in f.members.iter() {
+            f.client.join(m);
+        }
+
+        let m1 = f.members.get(1).unwrap();
+        let balance_before = f.token.balance(&m1);
+
+        f.env.ledger().with_mut(|l| l.timestamp = f.interval + 1);
+        f.client.payout();
+
+        let balance_after = f.token.balance(&m1);
+        let pot = f.contribution * (f.max_members as i128);
+        assert_eq!(balance_after - balance_before, pot, "member[1] should receive pot in cycle 1 per custom order");
+    }
+
+    // ─── get_contribution_status ─────────────────────────────────────────────
+
+    /// get_contribution_status: reflects join and contribute calls correctly
+    #[test]
+    fn test_get_contribution_status_accuracy() {
+        let f = setup_fixture(3);
+        for m in f.members.iter() {
+            f.client.join(m);
+        }
+
+        // All contributed via join for cycle 1
+        let status = f.client.get_contribution_status(&1u32);
+        assert_eq!(status.len(), 3);
+        for (_, paid) in status.iter() {
+            assert!(paid);
+        }
+
+        // Advance to cycle 2
+        f.env.ledger().with_mut(|l| l.timestamp = f.interval + 1);
+        f.client.payout();
+
+        // Only member[0] contributes for cycle 2
+        f.client.contribute(&f.members.get(0).unwrap());
+        let status2 = f.client.get_contribution_status(&2u32);
+        let (_, m0) = status2.get(0).unwrap();
+        let (_, m1) = status2.get(1).unwrap();
+        assert!(m0);
+        assert!(!m1);
+    }
+
+    // ─── Reputation ──────────────────────────────────────────────────────────
+
+    /// get_reputation: returns 0 for unknown member
+    #[test]
+    fn test_get_reputation_unknown_member() {
+        let f = setup_fixture(2);
+        let stranger = Address::generate(&f.env);
+        assert_eq!(f.client.get_reputation(&stranger), 0);
+    }
+
+    /// get_reputation_stats: returns zeros for unknown member
+    #[test]
+    fn test_get_reputation_stats_unknown() {
+        let f = setup_fixture(2);
+        let stranger = Address::generate(&f.env);
+        let (rep, circles, on_time, total) = f.client.get_reputation_stats(&stranger);
+        assert_eq!(rep, 0);
+        assert_eq!(circles, 0);
+        assert_eq!(on_time, 0);
+        assert_eq!(total, 0);
+    }
+
+    /// Reputation increases after on-time contributions
+    #[test]
+    fn test_reputation_increases_with_on_time_contributions() {
+        let f = setup_fixture(2);
+        for m in f.members.iter() {
+            f.client.join(m);
+        }
+
+        let member = f.members.get(0).unwrap();
+        // Contribute on-time for cycle 2 (before payout time)
+        // First advance to cycle 2
+        f.env.ledger().with_mut(|l| l.timestamp = f.interval + 1);
+        f.client.payout();
+
+        // Contribute before next payout time (on-time)
+        f.client.contribute(&member);
+
+        let rep = f.client.get_reputation(&member);
+        assert!(rep > 0, "reputation should be positive after on-time contribution");
+    }
+
+    // ─── propose_admin / accept_admin ────────────────────────────────────────
+
+    /// propose_admin + accept_admin: full happy path
+    #[test]
+    fn test_admin_transfer_happy_path() {
+        let f = setup_fixture(2);
+        let new_admin = Address::generate(&f.env);
+        f.client.propose_admin(&new_admin);
+        f.client.accept_admin();
+        // New admin can now call admin-only payout (circle not started, but no auth error)
+        // Verify by checking no panic on propose again as new admin
+        let another = Address::generate(&f.env);
+        f.client.propose_admin(&another); // new admin proposes again — should not panic
+    }
+
+    /// accept_admin: panics when no pending admin
+    #[test]
+    #[should_panic(expected = "no pending admin")]
+    fn test_accept_admin_no_pending() {
+        let f = setup_fixture(2);
+        f.client.accept_admin();
+    }
+
+    /// propose_admin: emits admin_proposed event
+    #[test]
+    fn test_propose_admin_emits_event() {
+        use soroban_sdk::{testutils::Events, Symbol, TryFromVal};
+
+        let f = setup_fixture(2);
+        let new_admin = Address::generate(&f.env);
+        f.client.propose_admin(&new_admin);
+
+        let sym = Symbol::new(&f.env, "admin_proposed");
+        let found = f.env.events().all().iter().any(|(_, topics, _)| {
+            topics.len() == 1
+                && Symbol::try_from_val(&f.env, &topics.get(0).unwrap())
+                    .map(|s: Symbol| s == sym)
+                    .unwrap_or(false)
+        });
+        assert!(found, "admin_proposed event should be emitted");
+    }
+
+    /// accept_admin: emits admin_transferred event
+    #[test]
+    fn test_accept_admin_emits_event() {
+        use soroban_sdk::{testutils::Events, Symbol, TryFromVal};
+
+        let f = setup_fixture(2);
+        let new_admin = Address::generate(&f.env);
+        f.client.propose_admin(&new_admin);
+        f.client.accept_admin();
+
+        let sym = Symbol::new(&f.env, "admin_transferred");
+        let found = f.env.events().all().iter().any(|(_, topics, _)| {
+            topics.len() == 1
+                && Symbol::try_from_val(&f.env, &topics.get(0).unwrap())
+                    .map(|s: Symbol| s == sym)
+                    .unwrap_or(false)
+        });
+        assert!(found, "admin_transferred event should be emitted");
+    }
+
+    // ─── initialize edge cases ────────────────────────────────────────────────
+
+    /// initialize: rejects zero contribution amount
+    #[test]
+    #[should_panic(expected = "contribution_amount must be positive")]
+    fn test_initialize_zero_contribution() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let admin = Address::generate(&env);
+        let token_id = env.register_stellar_asset_contract(admin.clone());
+        let contract_id = env.register_contract(None, AjoContract);
+        let client = AjoContractClient::new(&env, &contract_id);
+        client.initialize(&admin, &token_id, &0, &3, &86_400);
+    }
+
+    // ─── payout: circle not started ──────────────────────────────────────────
+
+    /// payout: panics if circle not started
+    #[test]
+    #[should_panic(expected = "circle not started")]
+    fn test_payout_circle_not_started() {
+        let f = setup_fixture(3);
+        // Only one member joins — circle not started
+        f.client.join(&f.members.get(0).unwrap());
+        f.env.ledger().with_mut(|l| l.timestamp = f.interval + 1);
+        f.client.payout();
+    }
 }
