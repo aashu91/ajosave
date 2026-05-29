@@ -11,6 +11,7 @@ import { getCurrencySymbol, SupportedCurrency } from "@/lib/currency";
 import { format } from "date-fns";
 import type { Metadata } from "next";
 import { CircleChat } from "@/components/circle/CircleChat";
+import { CopyButton } from "@/components/ui/CopyButton";
 import styles from "./page.module.css";
 
 interface Props {
@@ -109,6 +110,20 @@ export default async function CircleDetailPage({ params }: Props) {
                 <div className={styles.detailRow}>
                   <dt>Next Payout</dt>
                   <dd>{format(new Date(circle.nextPayoutAt), "MMM d, yyyy")}</dd>
+                </div>
+              )}
+              {isCreator && (
+                <div className={styles.detailRow}>
+                  <dt>Invite Link</dt>
+                  <dd className={styles.inviteLinkCell}>
+                    <span className={styles.inviteLinkText}>
+                      {`${process.env.NEXT_PUBLIC_APP_URL}/circles/${circle.id}/join`}
+                    </span>
+                    <CopyButton
+                      text={`${process.env.NEXT_PUBLIC_APP_URL}/circles/${circle.id}/join`}
+                      label="Copy invite link"
+                    />
+                  </dd>
                 </div>
               )}
             </dl>
