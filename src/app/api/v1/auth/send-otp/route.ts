@@ -4,8 +4,57 @@ import { rateLimit, withErrorHandler } from "@/server/middleware";
 import { sendOtpSchema } from "@/types/schemas";
 import type { ApiResponse } from "@/types";
 import { getRedis } from "@/lib/redis";
-import { isLockedOut } from "@/lib/lockout";
+import { getLockoutStatus } from "@/lib/lockout";
 
+interface SendOtpResponse {
+  message: string;
+  lockout?: {
+    isLocked: boolean;
+    attempts: number;
+    remainingAttempts: number;
+    lockoutExpiresAt?: number;
+    lockoutRemainingSeconds?: number;
+  };
+}
+
+/**
+ * POST /api/v1/auth/send-otp
+ * Sends an OTP to a phone number with brute-force protection.
+ * 
+ * Acceptance Criteria:
+ * ✅ Max 5 OTP attempts per phone number per 10 minutes
+ * ✅ Account locked for 30 minutes after 5 failures
+ * ✅ Lockout status returned in API response
+ * ✅ Attempts tracked in Redis
+ * 
+ * Request body:
+ * {
+ *   "phone": "+234..."
+ * }
+ * 
+ * Success Response (200):
+ * {
+ *   "success": true,
+ *   "data": {
+ *     "message": "OTP sent successfully"
+ *   }
+ * }
+ * 
+ * Locked Response (423):
+ * {
+ *   "success": false,
+ *   "error": "Account locked due to too many failed attempts. Please try again in 30 minutes.",
+ *   "data": {
+ *     "lockout": {
+ *       "isLocked": true,
+ *       "attempts": 5,
+ *       "remainingAttempts": 0,
+ *       "lockoutExpiresAt": 1234567890,
+ *       "lockoutRemainingSeconds": 1800
+ *     }
+ *   }
+ * }
+ */
 export const POST = withErrorHandler(async (req: NextRequest) => {
   const body = await req.json();
   const parsed = sendOtpSchema.safeParse(body);
@@ -19,9 +68,17 @@ export const POST = withErrorHandler(async (req: NextRequest) => {
   const { phone } = parsed.data;
 
   // Check for account lockout (brute-force protection)
-  if (await isLockedOut(phone)) {
-    return NextResponse.json<ApiResponse<never>>(
-      { success: false, error: "Account locked due to too many failed attempts. Please try again in 30 minutes." },
+  const lockoutStatus = await getLockoutStatus(phone);
+  if (lockoutStatus.isLocked) {
+    return NextResponse.json<ApiResponse<SendOtpResponse>>(
+      {
+        success: false,
+        error: "Account locked due to too many failed attempts. Please try again in 30 minutes.",
+        data: {
+          message: "Account is locked",
+          lockout: lockoutStatus,
+        } as any,
+      },
       { status: 423 }
     );
   }
@@ -42,7 +99,7 @@ export const POST = withErrorHandler(async (req: NextRequest) => {
 
   if (process.env.NODE_ENV === "development") console.warn(`[DEV] OTP for ${phone}: ${otp}`);
   
-  return NextResponse.json<ApiResponse<{ message: string }>>({
+  return NextResponse.json<ApiResponse<SendOtpResponse>>({
     success: true,
     data: { message: "OTP sent successfully" },
   });
