@@ -61,6 +61,8 @@ pub enum DataKey {
     // TTL Configuration
     TtlThreshold,
     TtlExtendTo,
+    // Reentrancy guard (issue #264)
+    PayoutLock,
 }
 
 // ─── Contract ─────────────────────────────────────────────────────────────────
@@ -334,8 +336,28 @@ impl AjoContract {
     }
 
     /// Trigger payout to the current cycle's recipient. Only callable by admin after next_payout_time.
+    ///
+    /// # Security – Reentrancy Guard (issue #264)
+    /// Although Soroban's execution model does not support traditional EVM-style reentrancy,
+    /// a `PayoutLock` flag is set at the start of this function and cleared at the end as an
+    /// explicit defence-in-depth measure. Any re-entrant or concurrent invocation (e.g. via
+    /// cross-contract calls or future protocol changes) will panic with "payout already in progress".
+    /// The contract also follows the checks-effects-interactions pattern: all state mutations
+    /// occur before the external token transfer.
     pub fn payout(env: Env) {
         Self::extend_instance_ttl(&env);
+
+        // ─── Reentrancy guard: acquire lock ───────────────────────────────────
+        let locked: bool = env
+            .storage()
+            .instance()
+            .get(&DataKey::PayoutLock)
+            .unwrap_or(false);
+        if locked {
+            panic!("payout already in progress");
+        }
+        env.storage().instance().set(&DataKey::PayoutLock, &true);
+
         let admin: Address = env.storage().instance().get(&DataKey::Admin).expect("not initialized");
         admin.require_auth();
 
@@ -416,6 +438,9 @@ impl AjoContract {
         // ─── Interaction: Transfer tokens ─────────────────────────────────────
         let token_client = token::Client::new(&env, &token);
         token_client.transfer(&env.current_contract_address(), &recipient, &pot);
+
+        // ─── Reentrancy guard: release lock ───────────────────────────────────
+        env.storage().instance().set(&DataKey::PayoutLock, &false);
 
         // ─── Events ───────────────────────────────────────────────────────────
         env.events().publish((Symbol::new(&env, "payout"),), (recipient.clone(), pot, current_cycle));
@@ -641,6 +666,13 @@ impl AjoContract {
         env.storage()
             .persistent()
             .extend_ttl(key, PERSISTENT_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
+    }
+
+    /// Test-only helper: force the payout lock to a given value.
+    /// Used to simulate a re-entrant call in the Soroban sandbox.
+    #[cfg(test)]
+    pub fn set_payout_lock(env: Env, locked: bool) {
+        env.storage().instance().set(&DataKey::PayoutLock, &locked);
     }
 }
 

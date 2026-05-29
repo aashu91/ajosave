@@ -284,7 +284,39 @@ mod integration {
         assert!(!completed);
     }
 
-    // ─── Upgrade tests ────────────────────────────────────────────────────────
+    // ─── Reentrancy guard tests (issue #264) ─────────────────────────────────
+
+    /// Lock is released after a successful payout so subsequent calls are not blocked.
+    #[test]
+    fn test_payout_lock_released_after_success() {
+        let f = setup_fixture(3);
+        for m in f.members.iter() { f.client.join(m); }
+
+        f.env.ledger().with_mut(|l| l.timestamp = f.interval + 1);
+        f.client.payout(); // lock acquired → released
+
+        for m in f.members.iter() { f.client.contribute(m); }
+        f.env.ledger().with_mut(|l| l.timestamp = f.interval * 2 + 2);
+        f.client.payout(); // must succeed — lock was released
+
+        let (cycle, _, _, _) = f.client.get_state();
+        assert_eq!(cycle, 3);
+    }
+
+    /// Double-call is rejected: setting the lock before payout triggers the guard.
+    #[test]
+    #[should_panic(expected = "payout already in progress")]
+    fn test_payout_reentrancy_guard() {
+        let f = setup_fixture(2);
+        for m in f.members.iter() { f.client.join(m); }
+        f.env.ledger().with_mut(|l| l.timestamp = f.interval + 1);
+
+        // Simulate a re-entrant call by forcing the lock to true before payout.
+        f.client.set_payout_lock(&true);
+        f.client.payout(); // must panic: "payout already in progress"
+    }
+
+        // ─── Upgrade tests ────────────────────────────────────────────────────────
 
     /// upgrade: admin can upgrade the contract WASM and event is emitted
     #[test]
