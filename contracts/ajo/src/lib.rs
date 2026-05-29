@@ -658,6 +658,29 @@ impl AjoContract {
         env.storage().instance().remove(&DataKey::ApprovalExpiry(op_hash.clone()));
     }
 
+    /// Propose a new admin. Only the current admin can call this.
+    /// The proposed admin must call `accept_admin` to complete the transfer.
+    pub fn propose_admin(env: Env, new_admin: Address) {
+        let admin: Address = env.storage().instance().get(&DataKey::Admin).expect("not initialized");
+        admin.require_auth();
+        env.storage().instance().set(&DataKey::PendingAdmin, &new_admin);
+        env.events().publish((Symbol::new(&env, "admin_proposed"),), (admin, new_admin));
+    }
+
+    /// Accept the admin role. Only the pending admin can call this.
+    pub fn accept_admin(env: Env) {
+        let pending: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::PendingAdmin)
+            .expect("no pending admin");
+        pending.require_auth();
+        let old_admin: Address = env.storage().instance().get(&DataKey::Admin).expect("not initialized");
+        env.storage().instance().set(&DataKey::Admin, &pending);
+        env.storage().instance().remove(&DataKey::PendingAdmin);
+        env.events().publish((Symbol::new(&env, "admin_transferred"),), (old_admin, pending));
+    }
+
     /// Set TTL configuration. Admin-only.
     pub fn set_ttl_config(env: Env, threshold: u32, extend_to: u32) {
         let admin: Address = env.storage().instance().get(&DataKey::Admin).expect("not initialized");
@@ -961,6 +984,27 @@ mod tests {
         let (cycle, _, _, completed) = client.get_state();
         assert_eq!(cycle, 2);
         assert!(!completed);
+    }
+
+    #[test]
+    fn test_propose_and_accept_admin() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (admin, _, _, _, client) = setup(&env);
+        let new_admin = Address::generate(&env);
+        client.propose_admin(&new_admin);
+        client.accept_admin();
+        // After transfer, new admin can call admin-only functions (e.g. payout)
+        // We just verify no panic — the event is the canonical proof
+    }
+
+    #[test]
+    #[should_panic(expected = "no pending admin")]
+    fn test_accept_admin_without_proposal_panics() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_, _, _, _, client) = setup(&env);
+        client.accept_admin();
     }
 }
 
