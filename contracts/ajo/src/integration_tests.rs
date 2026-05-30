@@ -74,12 +74,12 @@ mod integration {
             client.join(m);
         }
 
-        let (cycle, max, _, completed, _) = client.get_state();
+let (cycle, max, _, completed, _) = client.get_state();
         assert_eq!(cycle, 1, "circle should start at cycle 1 after all members join");
         assert_eq!(max, *max_members);
         assert!(!completed);
+        assert_eq!(client.get_members().len(), 5);
 
-        // 2. Run through every cycle
         let mut timestamp: u64 = 0;
         for cycle_num in 1..=*max_members {
             // Advance past payout time
@@ -104,15 +104,27 @@ mod integration {
                 assert_eq!(current, cycle_num + 1);
                 assert!(!done);
 
-                // All members contribute for next cycle
+                // All members contribute for next cycle (verify temp storage)
                 for m in members.iter() {
+                    let has_temp_before = env.storage().temporary().has(&crate::DataKey::Contributions(m.clone(), cycle_num + 1));
+                    assert!(!has_temp_before, "contribution should not exist before contribute");
                     client.contribute(m, &100_000_000);
+                    let has_temp_after = env.storage().temporary().has(&crate::DataKey::Contributions(m.clone(), cycle_num + 1));
+                    assert!(has_temp_after, "contribution should be in temp storage after contribute");
                 }
             }
         }
 
         let (_, _, _, completed, _) = client.get_state();
         assert!(completed, "circle should be marked completed after all payouts");
+
+        // Verify temporary contributions are cleared after completion
+        for cycle_num in 1..=*max_members {
+            for m in members.iter() {
+                let has_temp = env.storage().temporary().has(&crate::DataKey::Contributions(m.clone(), cycle_num));
+                assert!(!has_temp, "temp contributions should be cleared after circle completes");
+            }
+        }
     }
 
     /// initialize: rejects duplicate initialization
