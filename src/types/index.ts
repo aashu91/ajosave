@@ -86,6 +86,42 @@ export interface Payout {
   paidAt: Date;
 }
 
+// ─── Dispute ─────────────────────────────────────────────────────────────────
+export type DisputeType = "missed_payout" | "wrong_amount" | "other";
+export type DisputeStatus = "open" | "investigating" | "resolved" | "rejected";
+
+export interface Dispute {
+  id: string;
+  contributionId?: string;
+  memberId: string;
+  circleId: string;
+  paystackReference?: string;
+  type: DisputeType;
+  reason: string;
+  evidence?: string;
+  status: DisputeStatus;
+  resolutionNotes?: string;
+  resolvedBy?: string;
+  createdAt: Date;
+  resolvedAt?: Date;
+}
+
+// ─── Early Exit ───────────────────────────────────────────────────────────────
+export type EarlyExitStatus = "pending" | "approved" | "rejected";
+
+export interface EarlyExitRequest {
+  id: string;
+  circleId: string;
+  memberId: string;
+  userId: string;
+  penaltyPercent: number;
+  penaltyUsdc: string;
+  refundUsdc: string;
+  status: EarlyExitStatus;
+  createdAt: Date;
+  processedAt?: Date;
+}
+
 // ─── Circle Chat ──────────────────────────────────────────────────────────────
 export interface CircleMessage {
   id: string;

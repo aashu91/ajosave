@@ -48,11 +48,8 @@ function isRetryable(err: any): boolean {
   // 2. Check for specific Stellar transaction result codes
   const resultCodes = err.response?.data?.extras?.result_codes;
   if (resultCodes) {
-    // tx_bad_seq is explicitly NOT retryable as per requirements (fatal sequence mismatch)
-    if (resultCodes.transaction === "tx_bad_seq") return false;
-
-    // Most other transaction/operation failures (underfunded, etc.) are fatal
-    // and shouldn't be retried blindly.
+    // tx_bad_seq is retryable because we fetch a fresh sequence number on each attempt
+    if (resultCodes.transaction === "tx_bad_seq") return true;
   }
 
   // 3. Fallback to message checking for network-level errors (no response)
@@ -169,3 +166,14 @@ export async function validateStellarRecipient(publicKey: string): Promise<void>
 }
 
 export { server as horizonServer, USDC, networkPassphrase };
+
+// ─── Concurrent transaction queue ─────────────────────────────────────────────
+// Serialises outbound transactions from the server keypair so concurrent callers
+// never race on the same sequence number.
+let _txQueue: Promise<unknown> = Promise.resolve();
+
+export function enqueueStellarTransaction<T>(fn: () => Promise<T>): Promise<T> {
+  const next = _txQueue.then(() => fn()).catch(() => fn()); // retry once on queue error
+  _txQueue = next.catch(() => {}); // keep queue alive even if fn throws
+  return next as Promise<T>;
+}
