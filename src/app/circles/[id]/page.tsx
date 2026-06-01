@@ -13,6 +13,7 @@ import { format } from "date-fns";
 import type { Metadata } from "next";
 import { CircleChat } from "@/components/circle/CircleChat";
 import { CircleWaitlist } from "@/components/circle/CircleWaitlist";
+import { ContributeButton } from "@/components/circle/ContributeButton";
 import styles from "./page.module.css";
 
 interface Props {
@@ -90,6 +91,18 @@ export default async function CircleDetailPage({ params }: Props) {
             />
           )}
         </div>
+
+        {isActiveMember && circle.status === "active" && (
+          <div style={{ marginBottom: "var(--space-6)" }}>
+            <ContributeButton
+              circleId={circle.id}
+              circleName={circle.name}
+              amountNgn={circle.contributionFiat}
+              cycleFrequency={circle.cycleFrequency}
+              currentCycle={circle.currentCycle}
+            />
+          </div>
+        )}
 
         <div className={styles.grid}>
           <div className="card" style={{ gridColumn: "1 / -1" }}>
