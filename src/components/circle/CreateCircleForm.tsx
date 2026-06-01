@@ -15,6 +15,8 @@ const FORM_DEFAULTS: Partial<CreateCircleInput> = {
   cycleFrequency: "monthly",
   circleType: "public",
   contributionCurrency: "NGN",
+  yieldStrategy: "none",
+  penaltyPercent: 10,
 };
 
 function useUsdcPreview(amount: number | undefined, currency: string) {
@@ -158,6 +160,26 @@ export function CreateCircleForm() {
           Private circles require you to approve each join request
         </small>
         {errors.circleType && <p className={styles.fieldError}>{errors.circleType.message}</p>}
+      </div>
+
+      <div className="input-group">
+        <label className="input-label" htmlFor="yieldStrategy">Idle USDC Yield</label>
+        <select id="yieldStrategy" className="input" {...register("yieldStrategy")}>
+          <option value="none">None</option>
+          <option value="blend">Blend-compatible Stellar yield</option>
+        </select>
+        <small className="input-hint">
+          Optional: configure idle USDC to earn yield before payout. Risk disclosure will be shown to the circle creator.
+        </small>
+      </div>
+
+      <div className="input-group">
+        <label className="input-label" htmlFor="penaltyPercent">Missed Contribution Penalty (%)</label>
+        <input id="penaltyPercent" className="input" type="number" min={0} max={100} {...register("penaltyPercent", { valueAsNumber: true })} />
+        <small className="input-hint">
+          Percentage of the contribution charged as a penalty when a member misses a deadline.
+        </small>
+        {errors.penaltyPercent && <p className={styles.fieldError}>{errors.penaltyPercent.message}</p>}
       </div>
 
       {error && <p className={styles.error} role="alert">{error}</p>}
