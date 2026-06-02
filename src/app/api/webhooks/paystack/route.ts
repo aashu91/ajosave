@@ -51,6 +51,19 @@ export async function POST(req: NextRequest) {
 
   logger.info({ eventId, event: event.event }, "Paystack webhook verified");
 
+  if (event.event === "charge.failed") {
+    const reference: string = event.data?.reference;
+    if (!reference) {
+      return NextResponse.json({ error: "Missing reference" }, { status: 400 });
+    }
+    await query(
+      `UPDATE contributions SET status = 'failed'
+       WHERE paystack_reference = $1 AND status = 'pending'`,
+      [reference]
+    );
+    return NextResponse.json({ received: true });
+  }
+
   if (event.event !== "charge.success") {
     // Record non-charge.success events too to prevent replays
     await query(

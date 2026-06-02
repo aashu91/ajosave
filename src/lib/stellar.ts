@@ -11,11 +11,35 @@ import {
 import { serverConfig } from "@/server/config";
 import logger from "@/lib/logger";
 
+function makeServer(url: string) { return new Horizon.Server(url); }
 
-const server = new Horizon.Server(serverConfig.stellar.horizonUrl);
+const primaryServer = makeServer(serverConfig.stellar.horizonUrl);
+const fallbackServer = serverConfig.stellar.horizonFallbackUrl
+  ? makeServer(serverConfig.stellar.horizonFallbackUrl)
+  : null;
+
+/** Returns the active Horizon server, failing over to secondary on error. */
+async function withFallback<T>(fn: (s: Horizon.Server) => Promise<T>): Promise<T> {
+  try {
+    return await fn(primaryServer);
+  } catch (err) {
+    if (!fallbackServer) throw err;
+    logger.warn({ err, fallback: serverConfig.stellar.horizonFallbackUrl }, "[stellar] Primary Horizon failed, switching to fallback");
+    return fn(fallbackServer);
+  }
+}
+
+export async function checkHorizonHealth(): Promise<boolean> {
+  try { await withFallback((s) => s.loadAccount("GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN")); return true; }
+  catch { return false; }
+}
+
 const USDC = new Asset(serverConfig.usdc.assetCode, serverConfig.usdc.issuer);
 const networkPassphrase =
   serverConfig.stellar.network === "mainnet" ? Networks.PUBLIC : Networks.TESTNET;
+
+// Keep backward-compat export
+const server = primaryServer;
 
 type StellarBalance = {
   asset_type: string;
@@ -82,12 +106,11 @@ function isRetryable(err: any): boolean {
  */
 export async function sendUsdcPayment(destination: string, amount: string): Promise<string> {
   const keypair = Keypair.fromSecret(serverConfig.stellar.serverSecretKey);
-  const MAX_ATTEMPTS = 4; // Initial attempt + 3 retries
+  const MAX_ATTEMPTS = 4;
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
-      // Fetch fresh account (and sequence number) on every attempt to prevent stale sequences
-      const account = await server.loadAccount(keypair.publicKey());
+      const account = await withFallback((s) => s.loadAccount(keypair.publicKey()));
 
       const tx = new TransactionBuilder(account, { fee: BASE_FEE, networkPassphrase })
         .addOperation(Operation.payment({ destination, asset: USDC, amount }))
@@ -95,7 +118,7 @@ export async function sendUsdcPayment(destination: string, amount: string): Prom
         .build();
 
       tx.sign(keypair);
-      const result = await server.submitTransaction(tx);
+      const result = await withFallback((s) => s.submitTransaction(tx));
       
       if (attempt > 1) {
         logger.info({ attempt, destination, hash: result.hash }, "[stellar] sendUsdcPayment succeeded after retry");
@@ -135,7 +158,7 @@ export async function getUsdcBalance(
   publicKey: string
 ): Promise<{ balance: string; hasTrustline: boolean }> {
   try {
-    const account = await server.loadAccount(publicKey);
+    const account = await withFallback((s) => s.loadAccount(publicKey));
     const bal = account.balances.find(
       (b) =>
         b.asset_type !== "native" &&
@@ -158,7 +181,7 @@ export async function validateStellarRecipient(publicKey: string): Promise<void>
 
   let account: StellarAccountWithBalances;
   try {
-    account = await server.loadAccount(publicKey);
+    account = await withFallback((s) => s.loadAccount(publicKey));
   } catch {
     throw new Error(`Stellar account not found on-chain: ${publicKey}`);
   }
