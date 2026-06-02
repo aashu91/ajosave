@@ -124,6 +124,8 @@ function isRetryable(err: any): boolean {
  * Issue #19: retries up to 3 times with exponential backoff on transient errors.
  * Issue #20: `loadAccount` is called inside the retry loop so each attempt uses
  *            a fresh sequence number — preventing tx_bad_seq on concurrent payouts.
+ * Issue #141: if the server account has insufficient USDC, falls back to
+ *             pathPaymentStrictSend (XLM → USDC via DEX) with configurable slippage.
  */
 export async function sendUsdcPayment(destination: string, amount: string): Promise<string> {
   const keypair = Keypair.fromSecret(serverConfig.stellar.serverSecretKey);
@@ -146,7 +148,7 @@ export async function sendUsdcPayment(destination: string, amount: string): Prom
       } else {
         logger.info({ destination, hash: result.hash, baseFee, fee }, "[stellar] sendUsdcPayment succeeded");
       }
-      
+
       return result.hash;
     } catch (err) {
       const retryable = isRetryable(err);

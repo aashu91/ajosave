@@ -20,6 +20,7 @@ export const serverConfig = {
   usdc: {
     issuer: process.env.USDC_ISSUER ?? "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
     assetCode: process.env.USDC_ASSET_CODE ?? "USDC",
+    slippageTolerancePercent: parseFloat(process.env.SLIPPAGE_TOLERANCE_PERCENT ?? "0.5"),
   },
   paystack: {
     secretKey: process.env.PAYSTACK_SECRET_KEY ?? "",
