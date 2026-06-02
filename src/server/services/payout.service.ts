@@ -4,6 +4,7 @@ import { invokeContractPayout } from "@/lib/soroban";
 import { getCircleById, getMembersByCircle, updateCircleStatus } from "./circle.service";
 import { withPayoutLock, PayoutLockError } from "./payout-lock";
 import { notifyPayoutProcessed, notifyCircleCompleted } from "./notification.service";
+import { mintCertificate } from "./certificate.service";
 import type { Payout } from "@/types";
 import { randomUUID } from "crypto";
 import logger from "@/lib/logger";
@@ -159,6 +160,29 @@ export async function processCyclePayout(
 
     if (circle.currentCycle >= circleMembers.length) {
       await updateCircleStatus(circleId, "completed");
+
+      // Mint completion certificates for all active members (async, non-blocking)
+      const totalSavedUsdc = (
+        parseFloat(circle.contributionUsdc) * activeMembers.length * circleMembers.length
+      ).toFixed(7);
+
+      const { rows: memberUsers } = await query<{ stellar_public_key: string | null }>(
+        `SELECT u.stellar_public_key FROM members m
+         JOIN users u ON u.id = m.user_id
+         WHERE m.circle_id = $1 AND m.status = 'active'`,
+        [circleId]
+      );
+
+      for (const { stellar_public_key } of memberUsers) {
+        if (!stellar_public_key) continue;
+        mintCertificate({
+          memberStellarKey: stellar_public_key,
+          circleId,
+          circleName: circle.name,
+          cyclesCompleted: circleMembers.length,
+          totalSavedUsdc,
+        }).catch((err) => console.error("[payout] mintCertificate failed:", err));
+      }
 
       // Send completion notifications to all members (async, non-blocking)
       const memberUserIds = circleMembers.map(m => m.userId);

@@ -22,6 +22,9 @@ export default function ProfilePage() {
   const [referralMsg, setReferralMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [applyingCode, setApplyingCode] = useState(false);
   const [copied, setCopied] = useState(false);
+  type Cert = { circleId: string; circleName: string; cyclesCompleted: number; totalSavedUsdc: string; txHash: string; issuedAt: string };
+  const [certificates, setCertificates] = useState<Cert[]>([]);
+  const [certificates, setCertificates] = useState<import("@/server/services/certificate.service").Certificate[]>([]);
 
   useEffect(() => {
     if (status === "unauthenticated") router.push("/auth/login");
@@ -46,6 +49,10 @@ export default function ProfilePage() {
     fetch("/api/referral")
       .then((r) => r.json())
       .then((json) => { if (json.success) setReferral(json.data); });
+    fetch("/api/v1/users/me/certificates")
+      .then((r) => r.json())
+      .then((json) => { if (json.success) setCertificates(json.data); })
+      .catch(() => {});
   }, [status]);
 
   // Fetch USDC balance whenever the saved key changes

@@ -10,6 +10,7 @@ export const serverConfig = {
     networkPassphrase:
       process.env.STELLAR_NETWORK_PASSPHRASE ?? "Test SDF Network ; September 2015",
     ajoContractId: process.env.STELLAR_AJO_CONTRACT_ID ?? "",
+    certificateContractId: process.env.STELLAR_CERTIFICATE_CONTRACT_ID ?? "",
     serverSecretKey: process.env.STELLAR_SERVER_SECRET_KEY ?? "",
     sorobanRpcUrl:
       process.env.STELLAR_SOROBAN_RPC_URL ??
