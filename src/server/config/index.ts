@@ -6,6 +6,7 @@ export const serverConfig = {
   stellar: {
     network: (process.env.STELLAR_NETWORK ?? "testnet") as "testnet" | "mainnet",
     horizonUrl: process.env.STELLAR_HORIZON_URL ?? "https://horizon-testnet.stellar.org",
+    horizonFallbackUrl: process.env.STELLAR_HORIZON_FALLBACK_URL ?? "",
     networkPassphrase:
       process.env.STELLAR_NETWORK_PASSPHRASE ?? "Test SDF Network ; September 2015",
     ajoContractId: process.env.STELLAR_AJO_CONTRACT_ID ?? "",

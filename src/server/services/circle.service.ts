@@ -225,6 +225,24 @@ export async function joinCircle(
          WHERE id=$2`,
         [computeNextPayoutDate(circle.cycleFrequency), circleId]
       );
+
+      // Auto-randomize order when circle is full if randomize_order was selected
+      if (circle.payoutMethod === "randomized" && !circle.randomizationSeed) {
+        const { randomBytes } = await import("crypto");
+        const seed = `${Date.now()}-${randomBytes(16).toString("hex")}`;
+        // Fetch all active member ids for shuffling
+        const allActive = [...memberRows.filter(m => m.status === 'active'), newMember[0]];
+        const positions = allActive.map((_, i) => i + 1);
+        const seededRandom = createSeededRandom(seed);
+        for (let i = positions.length - 1; i > 0; i--) {
+          const j = Math.floor(seededRandom() * (i + 1));
+          [positions[i], positions[j]] = [positions[j], positions[i]];
+        }
+        for (let i = 0; i < allActive.length; i++) {
+          await q("UPDATE members SET position = $1, updated_at = NOW() WHERE id = $2", [positions[i], allActive[i].id]);
+        }
+        await q("UPDATE circles SET randomization_seed = $1, updated_at = NOW() WHERE id = $2", [seed, circleId]);
+      }
     }
 
     return newMember[0];
