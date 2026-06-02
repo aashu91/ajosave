@@ -110,6 +110,18 @@ export default async function CircleDetailPage({ params }: Props) {
           )}
         </div>
 
+        {isActiveMember && circle.status === "active" && (
+          <div style={{ marginBottom: "var(--space-6)" }}>
+            <ContributeButton
+              circleId={circle.id}
+              circleName={circle.name}
+              amountNgn={circle.contributionFiat}
+              cycleFrequency={circle.cycleFrequency}
+              currentCycle={circle.currentCycle}
+            />
+          </div>
+        )}
+
         <div className={styles.grid}>
           <div className="card" style={{ gridColumn: "1 / -1" }}>
             <h2 className={styles.sectionTitle}>Payout History</h2>

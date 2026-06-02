@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import * as vercelAnalytics from "@vercel/analytics";
 import { useToast } from "@/components/ui/Toast";
+import { useExchangeRate } from "@/hooks/useExchangeRate";
 import styles from "./ContributeButton.module.css";
 
 interface Props {
@@ -21,10 +22,13 @@ export function ContributeButton({ circleId, circleName, amountNgn, cycleFrequen
   const [networkFee, setNetworkFee] = useState<{ baseFee: number; priorityFee: number; maxFeeCap: number } | null>(null);
   const [feeError, setFeeError] = useState<string | null>(null);
   const { toast } = useToast();
+  const { rate, loading: rateLoading } = useExchangeRate("NGN");
 
   const feeEstimate = networkFee
     ? `${networkFee.priorityFee} stroops (${(networkFee.priorityFee / 1e7).toFixed(7)} XLM)`
     : "Fetching current Stellar fee…";
+
+  const usdcEquivalent = rate ? (amountNgn / rate).toFixed(4) : null;
 
   const handleConfirm = async () => {
     setLoading(true);
@@ -121,6 +125,12 @@ export function ContributeButton({ circleId, circleName, amountNgn, cycleFrequen
                 <dd>₦{amountNgn.toLocaleString("en-NG")}</dd>
               </div>
               <div className={styles.row}>
+                <dt>≈ USDC</dt>
+                <dd>
+                  {rateLoading ? "Loading…" : usdcEquivalent ? `${usdcEquivalent} USDC` : "—"}
+                </dd>
+              </div>
+              <div className={styles.row}>
                 <dt>Cycle</dt>
                 <dd>Cycle {currentCycle} ({cycleFrequency})</dd>
               </div>
@@ -142,6 +152,10 @@ export function ContributeButton({ circleId, circleName, amountNgn, cycleFrequen
                 </dd>
               </div>
             </dl>
+
+            <p className={styles.disclaimer}>
+              ⚠ Exchange rate is indicative and refreshes every 60 seconds. Final USDC amount may vary slightly at settlement.
+            </p>
 
             <div className={styles.actions}>
               <Button variant="ghost" onClick={() => setShowModal(false)} disabled={loading}>
