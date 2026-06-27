@@ -6,6 +6,7 @@ import { initializePayment } from "@/lib/paystack";
 import { serverConfig } from "@/server/config";
 import { withErrorHandler } from "@/server/middleware";
 import { query } from "@/lib/db";
+import { decrypt } from "@/lib/encryption";
 import { randomUUID } from "crypto";
 import type { ApiResponse } from "@/types";
 
@@ -63,8 +64,22 @@ export const POST = withErrorHandler(async (_req: NextRequest, ctx: unknown) => 
 
   const callbackUrl = `${serverConfig.app.url}/circles/${params.id}/contribute/callback?reference=${reference}`;
 
+  // Get user email
+  const { rows: users } = await query<{ email: string | null }>(
+    "SELECT email FROM users WHERE id = $1",
+    [userId]
+  );
+  const email = users[0]?.email ? decrypt(users[0].email) : null;
+
+  if (!email) {
+    return NextResponse.json<ApiResponse<never>>(
+      { success: false, error: "Please add an email to your profile before contributing" },
+      { status: 400 }
+    );
+  }
+
   const { authorizationUrl, platformFee } = await initializePayment({
-    email: (session.user as { email?: string }).email ?? `${userId}@ajosave.app`,
+    email,
     amount: circle.contributionFiat,
     currency: circle.contributionCurrency,
     reference,

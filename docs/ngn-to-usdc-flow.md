@@ -48,6 +48,11 @@ sequenceDiagram
 * **Payment Window**: Once a payment is initialized, the rate is locked for the duration of the Paystack checkout session using the unique `paystack_reference` reference key, ensuring no volatility exposure to the member.
 * **Precision Handling**: Fractional USDC values are converted to 7-decimal places and tracked as integers (**Stroops** where `1 USDC = 10,000,000 Stroops`) in backend calculations and on-chain Soroban contracts.
 
+### Email Handling & Validation
+* **Mandatory Profile Email**: External payment providers (like Paystack) require a valid customer email to initialize transactions and prevent fraud flags.
+* **Validation Gating**: Users must register and verify a valid email in their profile settings before making their first contribution or top-up.
+* **No Dummy Placeholders**: To ensure security and compliance, the backend does not generate temporary fallback emails (e.g., `userId@ajosave.app`) when initiating charges. Transactions fail fast with a `400 Bad Request` if the customer email is missing.
+
 ## 3. Onboarding & Help Content (User-Facing)
 
 To maintain transparency, members see the following guidelines in onboarding/help FAQs:
